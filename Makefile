@@ -1,73 +1,56 @@
-CPU := $(shell uname -p)
-ifeq ($(CPU),arm)
-export LD_LIBRARY_PATH=/opt/homebrew/lib/:$LD_LIBRARY_PATH
-INCD = -I /opt/homebrew/include/
-LIBD = -L /opt/homebrew/lib/
-endif
-
 CC := gcc
-SRCD := src
-TSTD := tests
-BLDD := build
-BIND := bin
-INCD += -I include
+CFLAGS := -Wall -Wextra -Wshadow -Wdouble-promotion -Wformat=2 -Wundef -pedantic -std=gnu11
+CPPFLAGS :=
+LIBS := -lcriterion -lm
 
-ALL_SRCF := $(shell find $(SRCD) -type f -name '*.c')
-ALL_OBJF := $(patsubst $(SRCD)/%,$(BLDD)/%,$(ALL_SRCF:.c=.o))
-TEST_SRC := $(shell find $(TSTD) -type f -name '*.c')
-TEST_OBJ := $(patsubst $(TSTD)/%,$(BLDD)/%,$(TEST_SRC:.c=.o))
+BUILD_DIR := build
+BIN_DIR := bin
+TEST_INPUT_DIR := tests.in
+TEST_OUTPUT_DIR := tests.out
+TEST_RESULTS := test_results.json
 
-TEST := unit_tests
+HW6_SRC := hw6.c
+UNIT_TEST_SRC := unit_tests.c
+STUDENT_TEST_SRC := student_tests.c
+
+HW6_OBJ := $(BUILD_DIR)/hw6.o
+UNIT_TEST_OBJ := $(BUILD_DIR)/unit_tests.o
+STUDENT_TEST_OBJ := $(BUILD_DIR)/student_tests.o
+
 EXEC := hw6
+TEST := unit_tests
+STUDENT_TEST := student_tests
 
-CFLAGS := -Wall -Wextra -Wshadow -Wdouble-promotion -Wformat=2 -Wundef -pedantic
-DFLAGS := -g -DDEBUG
-PRINT_STATEMENTS := -DERROR -DSUCCESS -DWARN -DINFO
+all: setup $(BIN_DIR)/$(EXEC) $(BIN_DIR)/$(TEST)
 
-STD := -std=gnu11
-TEST_LIB := -lcriterion
-LIBS := -lm
-
-CFLAGS += $(STD)
-CFLAGS += $(DFLAGS)
-
-TEST_RESULTS := "test_results.json"
-
-MAKEFLAGS := -j
-
-all: setup $(BIND)/$(TEST) $(BIND)/$(EXEC) 
-
-debug: CFLAGS += $(DFLAGS) $(PRINT_STATEMENTS) 
+debug: CFLAGS += -g -DDEBUG
 debug: all
 
-setup: 
-	@mkdir -p $(BIND)
-	@mkdir -p $(BLDD)
-	@mkdir -p $(TSTD).in
-	@mkdir -p $(TSTD).out
-	
-$(BIND)/$(TEST): $(ALL_OBJF) $(TEST_OBJ)
-	$(CC) $(FUNC_FILES) $(TEST_OBJ) $(INCD) $(TEST_LIB) $(LIBD) -o $@ $(LIBS)
+setup:
+	@mkdir -p $(BIN_DIR)
+	@mkdir -p $(BUILD_DIR)
+	@mkdir -p $(TEST_INPUT_DIR)
+	@mkdir -p $(TEST_OUTPUT_DIR)
 
-$(BLDD)/%.o: $(TSTD)/%.c
-	$(CC) $(CFLAGS) $(INCD) -c -o $@ $<
+$(BIN_DIR)/$(EXEC): $(HW6_OBJ) | setup
+	$(CC) $(CFLAGS) $< -o $@
 
-$(BLDD)/%.o: $(SRCD)/%.c 
-	$(CC) $(CFLAGS) $(INCD) -c -o $@ $<
+$(BIN_DIR)/$(TEST): $(HW6_OBJ) $(UNIT_TEST_OBJ) | setup
+	$(CC) $(CFLAGS) $^ -o $@ $(LIBS)
 
-$(BIND)/$(EXEC): $(ALL_OBJF)
-	$(CC) $(BLDD)/$(EXEC).o -o $@ $(LIBS)
+$(BIN_DIR)/$(STUDENT_TEST): $(HW6_OBJ) $(STUDENT_TEST_OBJ) | setup
+	$(CC) $(CFLAGS) $^ -o $@ $(LIBS)
 
-cpdate_tests:
+$(BUILD_DIR)/%.o: %.c | setup
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
-test: 
-	@rm -fr $(TSTD).in
-	@mkdir -p $(TSTD).in
-	@rm -fr $(TSTD).out
-	@mkdir -p $(TSTD).out
-	@$(BIND)/$(TEST) --full-stats --verbose --json=$(TEST_RESULTS) -j1
+test: all
+	@rm -fr $(TEST_INPUT_DIR) $(TEST_OUTPUT_DIR)
+	@mkdir -p $(TEST_INPUT_DIR)
+	@mkdir -p $(TEST_OUTPUT_DIR)
+	@$(BIN_DIR)/$(TEST) --full-stats --verbose --json=$(TEST_RESULTS) -j1
 
 clean:
-	rm -fr $(BLDD) $(BIND) $(TSTD).in $(TSTD).out *.out $(TEST_RESULTS)
+	rm -fr $(BUILD_DIR) $(BIN_DIR) $(TEST_INPUT_DIR) $(TEST_OUTPUT_DIR) *.out $(TEST_RESULTS)
 
-.PHONY: all clean debug criterion setup test update_tests
+.PHONY: all clean debug setup test
