@@ -19,6 +19,10 @@ typedef struct {
     long end_line;
 } ParsedArgs;
 
+static bool token_is_option(const char *token) {
+    return token != NULL && token[0] == '-' && token[1] != '\0';
+}
+
 /* Set defaults before parsing command-line options. */
 static void initialize_parsed_args(ParsedArgs *args) {
     args->search_text = NULL;
@@ -28,6 +32,10 @@ static void initialize_parsed_args(ParsedArgs *args) {
     args->has_r = false;
     args->start_line = 1;
     args->end_line = LONG_MAX;
+}
+
+static bool option_value_missing(int index, int argc, char *argv[]) {
+    return index + 1 >= argc || token_is_option(argv[index + 1]);
 }
 
 /* We only allow each supported option to appear once. */
@@ -101,12 +109,8 @@ static bool parse_line_range(const char *range_text, long *start_line, long *end
     return true;
 }
 
-static bool missing_value_after_option(int index, int argc, char *argv[]) {
-    if (index + 1 >= argc) {
-        return true;
-    }
-
-    return argv[index + 1][0] == '-';
+static bool wildcard_uses_suffix(const char *search_text) {
+    return search_text[0] == '*';
 }
 
 /* Read all flags from argv and collect validated options in ParsedArgs. */
@@ -117,8 +121,9 @@ static int parse_options(int argc, char *argv[], ParsedArgs *args) {
         const char *option = argv[i];
 
         if (strcmp(option, "-s") == 0) {
+            /* Consume the text that follows -s. */
             args->has_s = true;
-            if (missing_value_after_option(i, argc, argv)) {
+            if (option_value_missing(i, argc, argv)) {
                 return S_ARGUMENT_MISSING;
             }
 
@@ -128,8 +133,9 @@ static int parse_options(int argc, char *argv[], ParsedArgs *args) {
         }
 
         if (strcmp(option, "-r") == 0) {
+            /* Consume the text that follows -r. */
             args->has_r = true;
-            if (missing_value_after_option(i, argc, argv)) {
+            if (option_value_missing(i, argc, argv)) {
                 return R_ARGUMENT_MISSING;
             }
 
@@ -139,7 +145,8 @@ static int parse_options(int argc, char *argv[], ParsedArgs *args) {
         }
 
         if (strcmp(option, "-l") == 0) {
-            if (missing_value_after_option(i, argc, argv)) {
+            /* Parse and validate the user-provided line interval. */
+            if (option_value_missing(i, argc, argv)) {
                 return L_ARGUMENT_INVALID;
             }
 
@@ -164,6 +171,21 @@ static int parse_options(int argc, char *argv[], ParsedArgs *args) {
     }
 
     return 0;
+}
+
+static bool count_matches_at_end(const char *word, size_t word_len, const char *pattern, bool suffix_mode) {
+    size_t pattern_len = strlen(pattern);
+
+    if (pattern_len > word_len) {
+        /* A longer pattern cannot match this word in either mode. */
+        return false;
+    }
+
+    if (suffix_mode) {
+        return strncmp(word + word_len - pattern_len, pattern, pattern_len) == 0;
+    }
+
+    return strncmp(word, pattern, pattern_len) == 0;
 }
 
 /* Wildcard mode accepts exactly one '*' at either start or end. */
@@ -203,6 +225,7 @@ static void write_simple_replacement(FILE *out, const char *line, const char *se
     while (1) {
         const char *match = strstr(scan, search_text);
         if (match == NULL) {
+            /* No more matches; write the untouched remainder. */
             fputs(scan, out);
             return;
         }
@@ -211,50 +234,30 @@ static void write_simple_replacement(FILE *out, const char *line, const char *se
         fwrite(scan, 1, bytes_before_match, out);
         fputs(replace_text, out);
 
+        /* Continue searching right after the replaced text. */
         scan = match + search_len;
     }
 }
 
-static bool word_matches_prefix(const char *word, size_t word_len, const char *prefix) {
-    size_t prefix_len = strlen(prefix);
-
-    if (prefix_len > word_len) {
-        return false;
-    }
-
-    return strncmp(word, prefix, prefix_len) == 0;
-}
-
-static bool word_matches_suffix(const char *word, size_t word_len, const char *suffix) {
-    size_t suffix_len = strlen(suffix);
-
-    if (suffix_len > word_len) {
-        return false;
-    }
-
-    return strncmp(word + word_len - suffix_len, suffix, suffix_len) == 0;
-}
-
 /* Remove the '*' and keep only the pattern body for matching. */
 static void extract_wildcard_body(const char *search_text, bool suffix_mode, char *pattern, size_t pattern_size) {
-    if (suffix_mode) {
-        strncpy(pattern, search_text + 1, pattern_size - 1);
-        pattern[pattern_size - 1] = '\0';
-        return;
-    }
+    /* Skip leading '*' for suffix mode, keep full token for prefix mode. */
+    const char *pattern_start = suffix_mode ? search_text + 1 : search_text;
 
-    strncpy(pattern, search_text, pattern_size - 1);
+    strncpy(pattern, pattern_start, pattern_size - 1);
     pattern[pattern_size - 1] = '\0';
 
-    size_t pattern_len = strlen(pattern);
-    if (pattern_len > 0 && pattern[pattern_len - 1] == '*') {
-        pattern[pattern_len - 1] = '\0';
+    if (!suffix_mode) {
+        size_t pattern_len = strlen(pattern);
+        if (pattern_len > 0 && pattern[pattern_len - 1] == '*') {
+            pattern[pattern_len - 1] = '\0';
+        }
     }
 }
 
 /* In wildcard mode, match whole alphanumeric words by prefix or suffix. */
 static void write_wildcard_replacement(FILE *out, const char *line, const char *search_text, const char *replace_text) {
-    bool suffix_mode = (search_text[0] == '*');
+    bool suffix_mode = wildcard_uses_suffix(search_text);
     char wildcard_body[MAX_SEARCH_LEN + 1];
 
     extract_wildcard_body(search_text, suffix_mode, wildcard_body, sizeof(wildcard_body));
@@ -266,6 +269,7 @@ static void write_wildcard_replacement(FILE *out, const char *line, const char *
         unsigned char current = (unsigned char)line[index];
 
         if (!isalnum(current)) {
+            /* Preserve punctuation and whitespace exactly as-is. */
             fputc(line[index], out);
             index++;
             continue;
@@ -277,13 +281,8 @@ static void write_wildcard_replacement(FILE *out, const char *line, const char *
         }
 
         size_t word_len = index - word_start;
-        bool should_replace_word = false;
-
-        if (suffix_mode) {
-            should_replace_word = word_matches_suffix(line + word_start, word_len, wildcard_body);
-        } else {
-            should_replace_word = word_matches_prefix(line + word_start, word_len, wildcard_body);
-        }
+        /* Replace only if this alphanumeric word matches the wildcard body. */
+        bool should_replace_word = count_matches_at_end(line + word_start, word_len, wildcard_body, suffix_mode);
 
         if (should_replace_word) {
             fputs(replace_text, out);
@@ -335,6 +334,7 @@ int main(int argc, char *argv[]) {
         bool line_is_in_range = (line_number >= parsed.start_line && line_number <= parsed.end_line);
 
         if (!line_is_in_range) {
+            /* Keep lines outside the selected interval unchanged. */
             fputs(current_line, output_fp);
         } else if (parsed.wildcard_enabled) {
             write_wildcard_replacement(output_fp, current_line, parsed.search_text, parsed.replace_text);

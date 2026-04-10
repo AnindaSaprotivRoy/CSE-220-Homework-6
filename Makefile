@@ -35,10 +35,10 @@ setup:
 $(BIN_DIR)/$(EXEC): $(HW6_OBJ) | setup
 	$(CC) $(CFLAGS) $< -o $@
 
-$(BIN_DIR)/$(TEST): $(HW6_OBJ) $(UNIT_TEST_OBJ) | setup
+$(BIN_DIR)/$(TEST): $(UNIT_TEST_OBJ) | setup
 	$(CC) $(CFLAGS) $^ -o $@ $(LIBS)
 
-$(BIN_DIR)/$(STUDENT_TEST): $(HW6_OBJ) $(STUDENT_TEST_OBJ) | setup
+$(BIN_DIR)/$(STUDENT_TEST): $(STUDENT_TEST_OBJ) | setup
 	$(CC) $(CFLAGS) $^ -o $@ $(LIBS)
 
 $(BUILD_DIR)/%.o: %.c | setup

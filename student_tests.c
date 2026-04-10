@@ -10,14 +10,16 @@
 #include <sys/stat.h>
 #include <sys/wait.h>
 
+/* Run the program with the supplied argument string and return its exit code. */
 static int run_hw6(const char *args) {
     char cmd[1024];
-    snprintf(cmd, sizeof(cmd), "./hw6 %s > /dev/null 2>&1", args);
+    snprintf(cmd, sizeof(cmd), "./bin/hw6 %s > /dev/null 2>&1", args);
     int status = system(cmd);
     cr_assert_neq(status, -1, "Failed to invoke system() for command: %s", cmd);
     return WEXITSTATUS(status);
 }
 
+/* Create a small text file that each test can use as input. */
 static void write_text_file(const char *path, const char *content) {
     FILE *f = fopen(path, "w");
     cr_assert_not_null(f, "Could not open file for writing: %s", path);
@@ -25,6 +27,7 @@ static void write_text_file(const char *path, const char *content) {
     fclose(f);
 }
 
+/* Read the whole output file into a buffer so the test can compare it. */
 static void read_text_file(const char *path, char *buf, size_t size) {
     FILE *f = fopen(path, "r");
     cr_assert_not_null(f, "Could not open file for reading: %s", path);
@@ -33,11 +36,13 @@ static void read_text_file(const char *path, char *buf, size_t size) {
     fclose(f);
 }
 
+/* Build unique temporary file names for each test run. */
 static void make_paths(const char *tag, char *infile, size_t in_size, char *outfile, size_t out_size) {
     snprintf(infile, in_size, "/tmp/hw6_student_%d_%s_in.txt", getpid(), tag);
     snprintf(outfile, out_size, "/tmp/hw6_student_%d_%s_out.txt", getpid(), tag);
 }
 
+/* Invalid-argument behavior: the program should return the correct error codes. */
 Test(student_invalid_args, missing_argument_when_too_few_tokens) {
     int code = run_hw6("-s alpha -r beta /tmp/in_only.txt");
     cr_expect_eq(code, MISSING_ARGUMENT);
@@ -159,6 +164,7 @@ Test(student_invalid_args, wildcard_with_too_many_stars_is_invalid) {
     remove(outfile);
 }
 
+/* Output behavior: the program should replace text correctly in normal cases. */
 Test(student_output, unknown_options_are_ignored) {
     char infile[128];
     char outfile[128];
@@ -180,6 +186,7 @@ Test(student_output, unknown_options_are_ignored) {
     remove(outfile);
 }
 
+/* Line-range replacements should only affect the requested lines. */
 Test(student_output, replacement_respects_line_range) {
     char infile[128];
     char outfile[128];
@@ -201,6 +208,7 @@ Test(student_output, replacement_respects_line_range) {
     remove(outfile);
 }
 
+/* The line-range parser accepts numbers with extra trailing text. */
 Test(student_output, l_parsing_accepts_best_effort_integers) {
     char infile[128];
     char outfile[128];
@@ -221,6 +229,7 @@ Test(student_output, l_parsing_accepts_best_effort_integers) {
     remove(outfile);
 }
 
+/* Prefix wildcards should match words that start with the given text. */
 Test(student_output, wildcard_prefix_replaces_word_starts_only) {
     char infile[128];
     char outfile[128];
@@ -242,6 +251,7 @@ Test(student_output, wildcard_prefix_replaces_word_starts_only) {
     remove(outfile);
 }
 
+/* Suffix wildcards should match words that end with the given text. */
 Test(student_output, wildcard_suffix_replaces_word_endings) {
     char infile[128];
     char outfile[128];
